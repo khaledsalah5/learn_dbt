@@ -1,0 +1,25 @@
+version: 2
+
+sources:
+  - name: airbnb
+    schema: raw
+    tables:
+      - name: listings
+        identifier: raw_listings
+        columns:
+          - name: ROOM_TYPE
+            tests:
+              - dbt_expectations.expect_column_distinct_count_to_equal:
+                  value: 4 ## we can define this test here or in schema.yml and to run this test only : dbt test --select source:listings
+                           ## this will run this test and any other test related to this source
+
+      - name: hosts
+        identifier: raw_hosts
+
+      - name: reviews
+        identifier: raw_reviews
+        # loaded_at_field: date  
+        # freshness:
+        #   warn_after: {count: 1, period: hour}  
+        #   error_after: {count: 24, period: hour}
+        # ##to check out the freshness staute run  ==> dbt source freshness
