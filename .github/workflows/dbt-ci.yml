@@ -1,0 +1,83 @@
+name: dbt CI
+
+on:
+  push:
+    branches: ["master"]
+  pull_request:
+    branches: ["master"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  dbt-ci:
+    runs-on: ubuntu-latest
+
+    env:
+      SNOWFLAKE_ACCOUNT: ${{ secrets.DBT_SNOWFLAKE_ACCOUNT }}
+      SNOWFLAKE_USER: ${{ secrets.DBT_SNOWFLAKE_USER }}
+      SNOWFLAKE_PASSWORD: ${{ secrets.DBT_SNOWFLAKE_PASSWORD }}
+      SNOWFLAKE_ROLE: ${{ secrets.DBT_SNOWFLAKE_ROLE }}
+      SNOWFLAKE_DATABASE: ${{ secrets.DBT_SNOWFLAKE_DATABASE }}
+      SNOWFLAKE_WAREHOUSE: ${{ secrets.DBT_SNOWFLAKE_WAREHOUSE }}
+      SNOWFLAKE_SCHEMA: ${{ secrets.DBT_SNOWFLAKE_SCHEMA }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dbt
+        run: |
+          python -m pip install --upgrade pip
+          pip install dbt-snowflake
+
+      - name: Install dbt packages
+        run: dbt deps
+
+      - name: Create CI dbt profile
+        shell: bash
+        run: |
+          cat > profiles.yml <<EOF
+          dbtlearn:
+            target: ci
+            outputs:
+              ci:
+                type: snowflake
+                account: "${SNOWFLAKE_ACCOUNT:-placeholder_account}"
+                user: "${SNOWFLAKE_USER:-placeholder_user}"
+                password: "${SNOWFLAKE_PASSWORD:-placeholder_password}"
+                role: "${SNOWFLAKE_ROLE:-placeholder_role}"
+                database: "${SNOWFLAKE_DATABASE:-placeholder_database}"
+                warehouse: "${SNOWFLAKE_WAREHOUSE:-placeholder_warehouse}"
+                schema: "${SNOWFLAKE_SCHEMA:-CI}"
+                threads: 4
+          EOF
+
+      - name: Parse dbt project
+        run: dbt parse --profiles-dir .
+
+      - name: Check Snowflake secrets
+        id: secrets
+        shell: bash
+        run: |
+          if [[ -n "$SNOWFLAKE_ACCOUNT" &&                 -n "$SNOWFLAKE_USER" &&                 -n "$SNOWFLAKE_PASSWORD" &&                 -n "$SNOWFLAKE_ROLE" &&                 -n "$SNOWFLAKE_DATABASE" &&                 -n "$SNOWFLAKE_WAREHOUSE" &&                 -n "$SNOWFLAKE_SCHEMA" ]]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "Snowflake secrets are not configured. Skipping live dbt build."
+          fi
+
+      - name: Validate Snowflake connection
+        if: steps.secrets.outputs.configured == 'true'
+        run: dbt debug --profiles-dir .
+
+      - name: Build and test dbt project
+        if: steps.secrets.outputs.configured == 'true'
+        run: dbt build --profiles-dir .
